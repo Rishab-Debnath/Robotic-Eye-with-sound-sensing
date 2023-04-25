@@ -1,0 +1,102 @@
+#include <DHT.h>
+#include <ESP8266WiFi.h>
+
+#define DHTPIN 0    // Pin where the DHT11 is connected
+#define DHTTYPE DHT11   // DHT 11
+
+const char* ssid = "Galaxy M12";
+const char* password = "12345678";
+const char* host = "api.thingspeak.com";
+String apiKey = "ADOOXJ5L2EXL5WZQ";
+
+const int PIR_PIN = 5;
+const int TRIGGER_PIN = 14;  // Pin for the HC-SR04 trigger
+const int ECHO_PIN = 12;     // Pin for the HC-SR04 echo
+
+DHT dht(DHTPIN, DHTTYPE);
+
+WiFiClient client;
+
+void setup() {
+  Serial.begin(115200);
+
+  pinMode(PIR_PIN, INPUT);
+  pinMode(TRIGGER_PIN, OUTPUT);
+  pinMode(ECHO_PIN, INPUT);
+
+  dht.begin();
+
+  WiFi.begin(ssid, password);
+
+  Serial.println();
+  Serial.println();
+  Serial.print("Connecting to ");
+  Serial.println(ssid);
+
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+
+  Serial.println("");
+  Serial.println("WiFi connected");
+}
+
+void loop() {
+  float h = dht.readHumidity();
+  float t = dht.readTemperature();
+
+  float duration, distance;
+
+  digitalWrite(TRIGGER_PIN, LOW);
+  delayMicroseconds(2);
+  digitalWrite(TRIGGER_PIN, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(TRIGGER_PIN, LOW);
+  duration = pulseIn(ECHO_PIN, HIGH);
+  distance = duration * 0.034 / 2;
+
+  if (isnan(h) || isnan(t)) {
+    Serial.println("Failed to read from DHT sensor!");
+    return;
+  }
+
+  if (client.connect(host, 80)) {
+    String postStr = apiKey;
+    postStr += "&field1=";
+    postStr += String(t);
+    postStr += "&field2=";
+    postStr += String(h);
+    postStr += "&field3=";
+    postStr += String(digitalRead(PIR_PIN));
+    postStr += "&field4=";
+    postStr += String(distance);
+    postStr += "\r\n\r\n";
+
+    client.print("POST /update HTTP/1.1\n");
+    client.print("Host: api.thingspeak.com\n");
+    client.print("Connection: close\n");
+    client.print("X-THINGSPEAKAPIKEY: " + apiKey + "\n");
+    client.print("Content-Type: application/x-www-form-urlencoded\n");
+    client.print("Content-Length: ");
+    client.print(postStr.length());
+    client.print("\n\n");
+    client.print(postStr);
+
+    Serial.print("Temperature: ");
+    Serial.print(t);
+    Serial.print(" degrees Celsius, Humidity: ");
+    Serial.print(h);
+    Serial.print("%. PIR: ");
+    Serial.print(digitalRead(PIR_PIN));
+    Serial.print(", Distance: ");
+    Serial.print(distance);
+    Serial.println(" cm. Sent to ThingSpeak.");
+  }
+
+  client.stop();
+  Serial.println("Waiting...");
+
+  // ThingSpeak needs a minimum 15-second delay between updates
+  delay(15000);
+}
